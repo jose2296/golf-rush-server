@@ -119,4 +119,4 @@ server.listen(3000, () => {
     console.log('srver running at http://localhost:3000');
 });
 
-module.exports = app;
+export default app;
