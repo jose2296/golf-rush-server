@@ -44,10 +44,43 @@ io.on('connection', (socket) => {
     socket.emit('connected');
     updateRooms();
 
+    socket.on('player-hole', ({ playerHole, roomName }) => {
+        users[playerHole].holed = true;
+        users[playerHole].holedTime = new Date();
+        
+        const roomPlayers = Object.values(rooms[roomName].players).map(playerSocketId => users[playerSocketId]);
+        io.to(roomName).emit('players', roomPlayers)
+        
+        const isHoleFinished = Object.values(rooms[roomName].players).every(playerSocketId => users[playerSocketId].holed);
+        
+        if (isHoleFinished) {
+            io.to(roomName).emit('finish-hole', roomPlayers);
+            const firstPlayerFinished = roomPlayers.reduce((acc, player) => {
+                if (!acc || player.holedTime < acc.holedTime ) {
+                    return player;
+                }
+                
+                return acc;
+            });
+
+            io.to(roomName).emit('hole-winner', firstPlayerFinished);
+        }
+    });
+
+    socket.on('update-player-strokes', ({ roomName }) => {
+        users[socket.id].strokes = users[socket.id].strokes + 1; 
+
+        const roomPlayers = Object.values(rooms[roomName].players).map(playerSocketId => users[playerSocketId]);
+        io.to(roomName).emit('players', roomPlayers)
+    })
+
     socket.on('join-room', ({ roomName }) => {
         users[socket.id] = {
             id: socket.id,
-            pos: {x: 0, y: 10, z: 0}
+            pos: {x: 0, y: 10, z: 0},
+            holed: false,
+            holedTime: null,
+            strokes: 0
         };
         if (rooms[roomName]) {
             socket.join(roomName);
@@ -91,7 +124,7 @@ io.on('connection', (socket) => {
         users[socket.id].pos = position;
 
         const roomPlayers = Object.values(rooms[roomName].players).map(playerSocketId => users[playerSocketId]);
-        socket.to(roomName).emit('players', roomPlayers)
+        io.to(roomName).emit('players', roomPlayers)
     })
 
     socket.on('disconnect', () => {
