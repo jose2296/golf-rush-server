@@ -87,12 +87,11 @@ io.on('connection', (socket) => {
         updateRoom(roomName);
     })
 
-    socket.on('update-player', ({ player, roomName }) => {
-        users[player.id] = player;
+    socket.on('update-player', ({ position, roomName }) => {
+        users[socket.id].pos = position;
 
         const roomPlayers = Object.values(rooms[roomName].players).map(playerSocketId => users[playerSocketId]);
-        io.to(roomName).emit('players', roomPlayers);
-        socket.to(roomName).emit('player', roomPlayers)
+        socket.to(roomName).emit('players', roomPlayers)
     })
 
     socket.on('disconnect', () => {
