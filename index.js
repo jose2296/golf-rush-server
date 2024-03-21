@@ -96,6 +96,8 @@ io.on('connection', (socket) => {
     })
 
     socket.on('disconnect', () => {
+        delete users[socket.id];
+
         Object.entries(rooms).forEach(([roomKey, usersInRoom]) => {
             if (usersInRoom.players[socket.id]) {
                 socket.leave(roomKey)
