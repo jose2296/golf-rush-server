@@ -1,17 +1,21 @@
+import { instrument } from '@socket.io/admin-ui';
 import cors from 'cors';
 import express from 'express';
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
+import parser from 'socket.io-msgpack-parser';
 
 const app = express();
 const server = createServer(app);
 const io = new Server(server, {
+    parser,
     cors: {
-        origin: "*",
+        origin: '*',
         methods: ["GET", "POST"]
     }
 });
 app.use(cors());
+// app.use(express.static('./node_modules/@socket.io/admin-ui/ui/dist'))
 
 app.get('/', (req, res) => {
     res.send('Welcome Golf rush server');
@@ -116,7 +120,12 @@ io.on('connection', (socket) => {
 });
 
 server.listen(3000, () => {
-    console.log('srver running at http://localhost:3000');
+    console.log('server running at http://localhost:3000');
 });
+
+// instrument(io, {
+//     auth: false,
+//     mode: "development",
+// });
 
 export default app;
