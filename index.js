@@ -34,11 +34,38 @@ io.on('connection', (socket) => {
     }
 
     const updateRooms = () => {
-        const _rooms = Object.entries(rooms).map(([_, roomData]) => ({
-            ...roomData,
-            playersCount: Object.values(roomData.players).length
-        }))
-        io.emit('update-rooms', _rooms)
+        const newRooms = Object.entries(rooms).map(([roomName, roomData]) => {
+            rooms[roomName] = {
+                ...roomData,
+                playersCount: Object.values(roomData.players).length
+            };
+
+            return rooms[roomName];
+        });
+
+        io.emit('update-rooms', newRooms)
+    }
+
+    const createRoom = (roomName, players) => {
+        console.log('Creating room: ', roomName);
+        if (rooms[roomName]) {
+            console.error('Room exist with the same name:', roomName);
+            return;
+        }
+
+        rooms = {
+            ...rooms,
+            [roomName]: {
+                name: roomName,
+                winner: null,   
+                status: 'lobby',
+                admin: socket.id,
+                playersCount: 1,
+                players
+            }
+        };
+
+        updateRoom(roomName);
     }
 
     socket.emit('connected');
@@ -119,33 +146,31 @@ io.on('connection', (socket) => {
                 [roomName]: {
                     ...rooms[roomName],
                     admin: rooms[roomName].admin || socket.id,
+                    playersCount: Object.values(rooms[roomName]).length + 1,
                     players: {
                         ...rooms[roomName].players || {},
                         [socket.id]: socket.id
                     }
                 }
             }
-            updateRoom(roomName);
+
+            const players = {
+                [socket.id]: socket.id
+            }
+            updateRoom(roomName, players);
             return;
         }
 
         socket.join(roomName);
-        console.log('Creating room: ', roomName);
-        rooms = {
-            ...rooms,
-            [roomName]: {
-                name: roomName,
-                winner: null,
-                status: 'lobby',
-                admin: socket.id,
-                players: {
-                    [socket.id]: socket.id
-                }
-            }
-        };
-
-        updateRoom(roomName);
+        const players = {
+            [socket.id]: socket.id
+        }
+        createRoom(roomName, players);
     });
+
+    socket.on('create-room', ({ roomName }) => {
+        createRoom(roomName, {});
+    }); 
 
     socket.on('set-player-data', ({ roomName, userData }) => {
         users[socket.id] = {
@@ -164,6 +189,8 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         delete users[socket.id];
+
+        console.log(socket.id);
 
         Object.entries(rooms).forEach(([roomKey, usersInRoom]) => {
             if (usersInRoom.players[socket.id]) {
