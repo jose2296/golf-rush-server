@@ -1,4 +1,3 @@
-import { instrument } from '@socket.io/admin-ui';
 import cors from 'cors';
 import express from 'express';
 import { createServer } from 'node:http';
@@ -23,13 +22,18 @@ app.get('/', (req, res) => {
 
 let rooms = {};
 let users = {}
+const MAX_PLAYERS_PER_ROOM = 10;
 
 io.on('connection', (socket) => {
 
     const updateRoom = (roomName) => {
         const roomPlayers = Object.values(rooms[roomName].players).map(playerSocketId => users[playerSocketId]);
+        const allPlayersReady = Object.values(rooms[roomName].players).every(playerSocketId => users[playerSocketId].roomStatus === 'ready');
+        rooms[roomName].status = allPlayersReady ? 'lobby-ready' : 'lobby';
+
         io.to(roomName).emit('players', roomPlayers);
         io.to(roomName).emit('update-room', rooms[roomName]);
+
         updateRooms()
     }
 
@@ -57,7 +61,7 @@ io.on('connection', (socket) => {
             ...rooms,
             [roomName]: {
                 name: roomName,
-                winner: null,   
+                winner: null,
                 status: 'lobby',
                 admin: socket.id,
                 playersCount: 1,
@@ -71,27 +75,33 @@ io.on('connection', (socket) => {
     socket.emit('connected');
     updateRooms();
 
-    socket.on('player-hole', ({ playerHole, roomName, time, timeFormated }) => {
+
+    socket.on('toggle-player-room-ready', ({ roomName }) => {
+        users[socket.id].roomStatus = users[socket.id].roomStatus === 'ready' ? 'waiting' : 'ready';
+
+        updateRoom(roomName);
+    });
+
+    socket.on('player-hole', ({ playerHole, roomName, time, timeFormatted }) => {
         // TODO: Alternative to avoid finding later the winner by holedTime
         rooms[roomName].winner = rooms[roomName].winner || socket.id
         users[playerHole].holed = true;
         users[playerHole].holedTime = new Date();
         users[playerHole].time = time;
-        users[playerHole].timeFormated = timeFormated;
-        
-        console.log(users[playerHole]);
+        users[playerHole].timeFormatted = timeFormatted;
+
         const roomPlayers = Object.values(rooms[roomName].players).map(playerSocketId => users[playerSocketId]);
         io.to(roomName).emit('players', roomPlayers)
-        
+
         const isHoleFinished = Object.values(rooms[roomName].players).every(playerSocketId => users[playerSocketId].holed);
-        
+
         if (isHoleFinished) {
             // io.to(roomName).emit('finish-hole', roomPlayers);
             // const firstPlayerFinished = roomPlayers.reduce((acc, player) => {
             //     if (!acc || player.holedTime < acc.holedTime ) {
             //         return player;
             //     }
-                
+
             //     return acc;
             // });
 
@@ -102,21 +112,20 @@ io.on('connection', (socket) => {
 
     socket.on('restart-room', ({ roomName }) => {
         rooms[roomName].winner = null;
-        rooms[roomName].status = 'start';
-        const roomPlayers = Object.values(rooms[roomName].players).map(playerSocketId => {
+        rooms[roomName].status = 'lobby';
+        Object.values(rooms[roomName].players).forEach(playerSocketId => {
             users[playerSocketId] = {
                 ...users[playerSocketId],
                 pos: {x: 0, y: 10, z: 0},
                 holed: false,
                 holedTime: null,
+                timeFormatted: null,
+                time: null,
                 strokes: 0
             };
-
-            return users[playerSocketId];
         });
-        
-        io.to(roomName).emit('update-room', rooms[roomName]);
-        io.to(roomName).emit('players', roomPlayers);
+
+        updateRoom(roomName)
     })
 
     socket.on('start', ({ roomName }) => {
@@ -124,8 +133,27 @@ io.on('connection', (socket) => {
         io.to(roomName).emit('update-room', rooms[roomName]);
     })
 
+    socket.on('leave-room', ({ roomName }) => {
+        Object.entries(rooms).forEach(([roomKey, usersInRoom]) => {
+            if (roomKey === roomName) {
+                socket.leave(roomName)
+                delete usersInRoom.players[socket.id];
+                const nextAdminUser = Object.values(usersInRoom.players)[0]
+                rooms[roomKey].admin = nextAdminUser || null;
+
+                updateRoom(roomKey);
+
+                if (!nextAdminUser) {
+                    delete rooms[roomKey];
+                }
+            }
+        });
+
+        updateRooms();
+    })
+
     socket.on('update-player-strokes', ({ roomName }) => {
-        users[socket.id].strokes = users[socket.id].strokes + 1; 
+        users[socket.id].strokes = users[socket.id].strokes + 1;
 
         const roomPlayers = Object.values(rooms[roomName].players).map(playerSocketId => users[playerSocketId]);
         io.to(roomName).emit('players', roomPlayers)
@@ -137,27 +165,33 @@ io.on('connection', (socket) => {
             pos: {x: 0, y: 10, z: 0},
             holed: false,
             holedTime: null,
-            strokes: 0
+            strokes: 0,
+            roomStatus: 'waiting'
         };
         if (rooms[roomName]) {
-            socket.join(roomName);
-            rooms = {
-                ...rooms,
-                [roomName]: {
-                    ...rooms[roomName],
-                    admin: rooms[roomName].admin || socket.id,
-                    playersCount: Object.values(rooms[roomName]).length + 1,
-                    players: {
-                        ...rooms[roomName].players || {},
-                        [socket.id]: socket.id
+            if (Object.values(rooms[roomName].players).length < MAX_PLAYERS_PER_ROOM) {
+                socket.join(roomName);
+                rooms = {
+                    ...rooms,
+                    [roomName]: {
+                        ...rooms[roomName],
+                        admin: rooms[roomName].admin || socket.id,
+                        playersCount: Object.values(rooms[roomName]).length + 1,
+                        players: {
+                            ...rooms[roomName].players || {},
+                            [socket.id]: socket.id
+                        }
                     }
                 }
+
+                const players = {
+                    [socket.id]: socket.id
+                }
+                updateRoom(roomName, players);
+                return;
             }
 
-            const players = {
-                [socket.id]: socket.id
-            }
-            updateRoom(roomName, players);
+            console.log('Maximum number of players reached for room:', roomName);
             return;
         }
 
@@ -170,7 +204,7 @@ io.on('connection', (socket) => {
 
     socket.on('create-room', ({ roomName }) => {
         createRoom(roomName, {});
-    }); 
+    });
 
     socket.on('set-player-data', ({ roomName, userData }) => {
         users[socket.id] = {
@@ -198,9 +232,6 @@ io.on('connection', (socket) => {
                 delete usersInRoom.players[socket.id];
                 const nextAdminUser = Object.values(usersInRoom.players)[0]
                 rooms[roomKey].admin = nextAdminUser || null;
-                
-                const roomPlayers = Object.values(usersInRoom.players).map(playerSocketId => users[playerSocketId]);
-                io.to(roomKey).emit('players', roomPlayers);
 
                 updateRoom(roomKey);
                 if (!nextAdminUser) {
