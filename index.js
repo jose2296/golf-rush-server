@@ -110,13 +110,13 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('restart-room', ({ roomName }) => {
+    socket.on('restart-room', ({ roomName, playerPosition }) => {
         rooms[roomName].winner = null;
         rooms[roomName].status = 'lobby';
         Object.values(rooms[roomName].players).forEach(playerSocketId => {
             users[playerSocketId] = {
                 ...users[playerSocketId],
-                pos: {x: 0, y: 10, z: 0},
+                pos: playerPosition || {x: 0, y: 10, z: 0},
                 holed: false,
                 holedTime: null,
                 timeFormatted: null,
@@ -159,10 +159,10 @@ io.on('connection', (socket) => {
         io.to(roomName).emit('players', roomPlayers)
     })
 
-    socket.on('join-room', ({ roomName }) => {
+    socket.on('join-room', ({ roomName, playerPosition }) => {
         users[socket.id] = {
             id: socket.id,
-            pos: {x: 0, y: 10, z: 0},
+            pos: playerPosition || {x: 0, y: 10, z: 0},
             holed: false,
             holedTime: null,
             strokes: 0,
